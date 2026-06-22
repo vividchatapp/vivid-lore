@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vivid Chat Card Creator</title>
+    
+    <style>
+        :root {
+            --bg-color: #121214;
+            --panel-bg: #1a1a1e;
+            --accent-color: #6366f1;
+            --text-color: #e4e4e7;
+            --text-muted: #a1a1aa;
+            --border-color: #27272a;
+        }
+
+        body {
+            font-family: sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        h1 { font-size: 28px; text-align: center; color: #ffffff; margin-bottom: 10px; }
+        h2 { font-size: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; color: #ffffff; margin-top: 0; }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        input, textarea {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            color: var(--text-color);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        /* Drag and Drop Styling */
+        .dropzone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .dropzone.drag-active {
+            border-color: var(--accent-color);
+            background-color: rgba(99, 102, 241, 0.1);
+            color: #ffffff;
+        }
+
+        .btn-add {
+            background-color: transparent;
+            color: var(--accent-color);
+            border: 1px dashed var(--accent-color);
+            padding: 12px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-add:hover {
+            background-color: rgba(99, 102, 241, 0.1);
+        }
+
+        .btn-submit {
+            background-color: var(--accent-color);
+            color: #ffffff;
+            border: none;
+            padding: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 18px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Vivid Chat Card Creator</h1>
+        
+        <div class="panel">
+            <h2>Media & Global Metadata</h2>
+            
+            <div class="form-group">
+                <label>Chub.ai Display Title</label>
+                <input type="text" id="chub-title" placeholder="e.g., Story of Dax and Aiko">
+            </div>
+
+            <div id="dropzone" class="dropzone">
+                Drag & drop your PNG here, or click to upload
+            </div>
+            <input type="file" id="file-input" accept="image/png" style="display: none;">
+            
+            <div class="form-group">
+                <label>Story Name</label>
+                <input type="text" id="story-name" placeholder="Story Name">
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>Characters</h2>
+            <div id="characters-container"></div>
+            <button class="btn-add" onclick="addItem('character')">+ Add Character</button>
+        </div>
+
+        <div class="panel">
+            <h2>Scenes</h2>
+            <div id="scenes-container"></div>
+            <button class="btn-add" onclick="addItem('scene')">+ Add Scene</button>
+        </div>
+
+        <div class="panel">
+            <h2>Styles</h2>
+            <div id="styles-container"></div>
+            <button class="btn-add" onclick="addItem('style')">+ Add Style</button>
+        </div>
+
+        <button id="bake-btn" class="btn-submit">Bake & Download Card</button>
+    </div>
+
+    <script>
+        // --- 1. Global State ---
+        let baseImageBytes = null;
+
+        // --- 2. Drag & Drop Implementation ---
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+
+        // Event Listeners for Drag and Drop
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        dropzone.addEventListener('dragover', () => dropzone.classList.add('drag-active'));
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-active'));
+        
+        dropzone.addEventListener('drop', (e) => {
+            dropzone.classList.remove('drag-active');
+            handleFile(e.dataTransfer.files[0]);
+        });
+
+        // Click to trigger input
+        dropzone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        function handleFile(file) {
+            if (!file || file.type !== 'image/png') {
+                return alert("Please upload a valid PNG file.");
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                baseImageBytes = new Uint8Array(e.target.result);
+                dropzone.textContent = "Image Loaded: " + file.name;
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // --- 3. Dynamic UI Generation ---
+        function addItem(type) {
+            const container = document.getElementById(type + 's-container');
+            const div = document.createElement('div');
+            div.className = 'form-group';
+            
+            div.innerHTML = `
+                <label>${type.charAt(0).toUpperCase() + type.slice(1)} Name</label>
+                <input type="text" class="${type}-name">
+                <label>${type.charAt(0).toUpperCase() + type.slice(1)} Description</label>
+                <textarea class="${type}-description"></textarea>
+            `;
+            
+            container.appendChild(div);
+        }
+
+        // Initialize with one of each to start
+        addItem('character');
+        addItem('scene');
+        addItem('style');
+
+        // --- 4. PNG Metadata Injection (Corrected CRC logic) ---
+        function injectPngTextChunk(pngBytes, key, value) {
+            const textData = new TextEncoder().encode(key + '\0' + value);
+            const length = textData.length;
+            
+            const chunk = new Uint8Array(length + 12);
+            
+            // Length Header
+            new DataView(chunk.buffer).setUint32(0, length);
+            
+            // Chunk Type: "tEXt" (116, 69, 88, 116)
+            chunk.set([116, 69, 88, 116], 4); 
+            chunk.set(textData, 8);
+            
+            // Calculate CRC (Cyclic Redundancy Check)
+            let crc = 0xFFFFFFFF;
+            for (let i = 4; i < length + 8; i++) {
+                crc ^= chunk[i];
+                for (let j = 0; j < 8; j++) {
+                    crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+                }
+            }
+            new DataView(chunk.buffer).setUint32(length + 8, crc ^ 0xFFFFFFFF);
+
+            // Construct new PNG: original 33 bytes (IHDR) + new chunk + remaining bytes
+            const output = new Uint8Array(pngBytes.length + chunk.length);
+            output.set(pngBytes.subarray(0, 33), 0);
+            output.set(chunk, 33);
+            output.set(pngBytes.subarray(33), 33 + chunk.length);
+            
+            return output;
+        }
+
+        // --- 5. Bake & Download Execution ---
+        document.getElementById('bake-btn').addEventListener('click', () => {
+            if (!baseImageBytes) {
+                return alert("Please upload a base PNG image first!");
+            }
+            
+            // Collect Data
+            const getItems = (type) => Array.from(document.querySelectorAll(`.${type}-name`)).map((n, i) => ({ 
+                name: n.value, 
+                description: document.querySelectorAll(`.${type}-description`)[i].value 
+            })).filter(item => item.name.trim() !== "");
+
+            const characters = getItems('character');
+            const scenes = getItems('scene');
+            const styles = getItems('style');
+            
+            const chubTitle = document.getElementById('chub-title').value.trim();
+            const cannedDescription = `Scenario featuring: ${characters.map(c => c.name).join(', ')}. Setting: ${scenes.map(s => s.name).join(', ')}.`;
+
+            // Standardize Tags as per requirements
+            const tags = ['vivid-chat-app', 'vivid-lore', 'roleplay'];
+            characters.forEach(c => tags.push('vivid-character-' + c.name.toLowerCase().replace(/[^a-z0-9]/g, '-')));
+            scenes.forEach(s => tags.push('vivid-scene-' + s.name.toLowerCase().replace(/[^a-z0-9]/g, '-')));
+            styles.forEach(st => tags.push('vivid-style-' + st.name.toLowerCase().replace(/[^a-z0-9]/g, '-')));
+
+            // Create JSON Object
+            const tavernV2Card = {
+                spec: "chara_card_v2",
+                spec_version: "2.0",
+                data: {
+                    name: chubTitle || "Vivid Card",
+                    description: cannedDescription,
+                    tags: tags,
+                    extensions: {
+                        vivid_chat: {
+                            characters: characters,
+                            scenes: scenes,
+                            styles: styles
+                        }
+                    }
+                }
+            };
+
+            // Encode and Bake
+            const jsonString = JSON.stringify(tavernV2Card);
+            const base64Json = btoa(unescape(encodeURIComponent(jsonString)));
+            const processedPng = injectPngTextChunk(baseImageBytes, 'chara', base64Json);
+            
+            // Trigger Download
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(new Blob([processedPng], { type: 'image/png' }));
+            link.download = (chubTitle.replace(/[^a-z0-9]/gi, '_') || "vivid_card") + ".png";
+            link.click();
+        });
+    </script>
+</body>
+</html>
