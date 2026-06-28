@@ -1,0 +1,214 @@
+<!-- view.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vivid Card Inspector</title>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --panel-bg: #1a1a1e;
+            --accent-color: #6366f1;
+            --text-color: #e4e4e7;
+            --text-muted: #a1a1aa;
+            --border-color: #27272a;
+        }
+
+        body {
+            font-family: sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        h1 { font-size: 28px; text-align: center; color: #ffffff; margin-bottom: 10px; }
+        h2 { font-size: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; color: #ffffff; margin-top: 0; }
+
+        pre {
+            background: #000;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            color: #a6e3a1; /* Greenish for easier reading */
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .dropzone.drag-active {
+            border-color: var(--accent-color);
+            background-color: rgba(99, 102, 241, 0.1);
+        }
+
+        .info-box {
+            margin-top: 15px;
+            padding: 15px;
+            border-left: 4px solid var(--accent-color);
+            background: rgba(99, 102, 241, 0.05);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Vivid Card Inspector</h1>
+        <p style="text-align: center; color: var(--text-muted);">Drag and drop a .png file created by the "Creator" to inspect its metadata.</p>
+        
+        <div class="panel">
+            <h2>Drop Image Here</h2>
+            <div id="dropzone" class="dropzone">
+                Drag & Drop PNG or Click to Select
+            </div>
+            <input type="file" id="file-input" accept="image/png" style="display: none;">
+        </div>
+
+        <div id="result-panel" class="panel" style="display: none;">
+            <h2>Extracted Data</h2>
+            <div id="status-msg" class="info-box"></div>
+            <h3>JSON Structure:</h3>
+            <pre id="json-output"></pre>
+            
+            <h3>Raw Metadata Found:</h3>
+            <pre id="raw-data"></pre>
+        </div>
+    </div>
+
+<script>
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+    const resultPanel = document.getElementById('result-panel');
+    const jsonOutput = document.getElementById('json-output');
+    const rawDataOutput = document.getElementById('raw-data');
+    const statusMsg = document.getElementById('status-msg');
+
+    // --- Drag & Drop UI Logic ---
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    dropzone.addEventListener('dragover', () => dropzone.classList.add('drag-active'));
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-active'));
+    
+    dropzone.addEventListener('drop', (e) => {
+        dropzone.classList.remove('drag-active');
+        handleFile(e.dataTransfer.files[0]);
+    });
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+    function handleFile(file) {
+        if (!file || file.type !== 'image/png') {
+            alert("Please upload a valid PNG file.");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            processPng(new Uint8Array(e.target.result));
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function processPng(buffer) {
+        let foundText = false;
+        const view = new DataView(buffer.buffer);
+
+        // FIX: Start at index 8 to bypass the 8-byte PNG file signature header
+        let i = 8; 
+
+        // Iterate through chunks safely
+        while (i < buffer.length - 8) {
+            const length = view.getUint32(i);
+            
+            // Safeguard against bad/empty lengths causing infinite loops
+            if (length < 0 || (i + 12 + length) > buffer.length) {
+                break;
+            }
+
+            const type = String.fromCharCode(
+                buffer[i+4], 
+                buffer[i+5], 
+                buffer[i+6], 
+                buffer[i+7]
+            );
+
+            if (type === "tEXt") {
+                // The data payload starts at offset i + 8 and runs for 'length' bytes
+                const content = new TextDecoder().decode(buffer.slice(i + 8, i + 8 + length));
+                
+                // Check if it contains the 'chara' keyword
+                if (content.startsWith('chara\0') || content.includes('chara')) {
+                    foundText = true;
+                    
+                    // Split on the PNG tEXt null byte separator
+                    const parts = content.split('\0'); 
+                    const base64Data = parts[1]; 
+
+                    try {
+                        // Modern, safe way to decode Base64 containing UTF-8 characters
+                        const binString = atob(base64Data.trim());
+                        const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0));
+                        const jsonStr = new TextDecoder().decode(bytes);
+                        const jsonObj = JSON.parse(jsonStr);
+                        
+                        // UI Update
+                        resultPanel.style.display = 'block';
+                        statusMsg.innerHTML = "<span style='color: #44ff44;'>Success! Found embedded character card data.</span>";
+                        jsonOutput.textContent = JSON.stringify(jsonObj, null, 4);
+                        rawDataOutput.textContent = content;
+                    } catch (err) {
+                        console.error(err);
+                        resultPanel.style.display = 'block';
+
+                        jsonOutput.textContent = "Could not parse JSON.";
+                        rawDataOutput.textContent = content;
+                    }
+                    break;
+                }
+            }
+            
+            // Advance to the next chunk: Length(4) + Type(4) + Data(length) + CRC(4)
+            i += 12 + length; 
+        }
+
+        if (!foundText) {
+            resultPanel.style.display = 'block';
+            statusMsg.innerHTML = "<span style='color: #ff4444;'>No 'chara' metadata found in this PNG.</span>";
+            jsonOutput.textContent = "N/A";
+            rawDataOutput.textContent = "None";
+        }
+    }
+</script>
+</body>
+</html>
